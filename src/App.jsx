@@ -26,17 +26,38 @@ function priorityColor(value) {
 
 function LoginScreen() {
   const [email, setEmail] = useState('')
-  const [sent, setSent] = useState(false)
+  const [code, setCode] = useState('')
+  const [step, setStep] = useState('email') // 'email' | 'code'
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
-  async function handleLogin() {
+  async function handleSendCode() {
     if (!email.trim()) return
     setLoading(true)
-    await supabase.auth.signInWithOtp({
+    setError('')
+    const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
     })
-    setSent(true)
+    if (error) {
+      setError(error.message)
+    } else {
+      setStep('code')
+    }
+    setLoading(false)
+  }
+
+  async function handleVerifyCode() {
+    if (!code.trim()) return
+    setLoading(true)
+    setError('')
+    const { error } = await supabase.auth.verifyOtp({
+      email: email.trim(),
+      token: code.trim(),
+      type: 'email',
+    })
+    if (error) {
+      setError('Invalid code — please try again.')
+    }
     setLoading(false)
   }
 
@@ -48,18 +69,13 @@ function LoginScreen() {
           <p style={styles.subtitle}>Sign in to continue.</p>
         </header>
 
-        {sent ? (
-          <p style={styles.sentMsg}>
-            Magic link sent to <span style={{ color: '#e8e8e8' }}>{email}</span>.
-            <br />Check your inbox and click the link.
-          </p>
-        ) : (
+        {step === 'email' ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              onKeyDown={(e) => e.key === 'Enter' && handleSendCode()}
               placeholder="your@email.com"
               autoFocus
               style={styles.addInput}
@@ -67,7 +83,7 @@ function LoginScreen() {
               onBlur={(e) => (e.target.style.borderColor = '#222')}
             />
             <button
-              onClick={handleLogin}
+              onClick={handleSendCode}
               disabled={loading}
               style={{
                 ...styles.addBtn,
@@ -76,7 +92,46 @@ function LoginScreen() {
                 opacity: loading ? 0.6 : 1,
               }}
             >
-              {loading ? 'Sending…' : 'Send magic link'}
+              {loading ? 'Sending…' : 'Send code'}
+            </button>
+            {error && <p style={styles.errorMsg}>{error}</p>}
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <p style={styles.sentMsg}>
+              Code sent to <span style={{ color: '#e8e8e8' }}>{email}</span>.<br />
+              Check your inbox and enter the 6-digit code below.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
+              placeholder="123456"
+              autoFocus
+              style={{ ...styles.addInput, letterSpacing: '0.2em', fontSize: 18 }}
+              onFocus={(e) => (e.target.style.borderColor = '#7eb8f7')}
+              onBlur={(e) => (e.target.style.borderColor = '#222')}
+            />
+            <button
+              onClick={handleVerifyCode}
+              disabled={loading}
+              style={{
+                ...styles.addBtn,
+                backgroundColor: '#7eb8f7',
+                color: '#0d0d0d',
+                opacity: loading ? 0.6 : 1,
+              }}
+            >
+              {loading ? 'Verifying…' : 'Sign in'}
+            </button>
+            {error && <p style={styles.errorMsg}>{error}</p>}
+            <button
+              onClick={() => { setStep('email'); setCode(''); setError('') }}
+              style={styles.clearBtn}
+            >
+              ← Use a different email
             </button>
           </div>
         )}
@@ -780,5 +835,11 @@ const styles = {
     color: '#777',
     fontFamily: "'IBM Plex Mono', monospace",
     lineHeight: 1.7,
+  },
+  errorMsg: {
+    fontSize: 11,
+    color: '#f87171',
+    fontFamily: "'IBM Plex Mono', monospace",
+    letterSpacing: '0.04em',
   },
 }
