@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { supabase } from './supabase'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -15,35 +16,85 @@ const PRIORITIES = [
 
 const FILTERS = ['All', 'Active', 'Completed']
 
-const STORAGE_KEY = 'tasktracker_tasks'
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function loadTasks() {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY)
-    return stored ? JSON.parse(stored) : { work: [], personal: [] }
-  } catch {
-    return { work: [], personal: [] }
-  }
-}
-
-function saveTasks(tasks) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks))
-}
-
-function createTask(text, priority) {
-  return {
-    id: crypto.randomUUID(),
-    text,
-    priority,
-    completed: false,
-    createdAt: Date.now(),
-  }
-}
 
 function priorityColor(value) {
   return PRIORITIES.find((p) => p.value === value)?.color ?? '#888'
+}
+
+// ─── Login Screen ─────────────────────────────────────────────────────────────
+
+function LoginScreen() {
+  const [email, setEmail] = useState('')
+  const [sent, setSent] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function handleLogin() {
+    if (!email.trim()) return
+    setLoading(true)
+    await supabase.auth.signInWithOtp({
+      email: email.trim(),
+      options: { emailRedirectTo: window.location.origin },
+    })
+    setSent(true)
+    setLoading(false)
+  }
+
+  return (
+    <div style={styles.page}>
+      <div style={styles.card}>
+        <header style={styles.header}>
+          <h1 style={styles.title}>Tasks</h1>
+          <p style={styles.subtitle}>Sign in to continue.</p>
+        </header>
+
+        {sent ? (
+          <p style={styles.sentMsg}>
+            Magic link sent to <span style={{ color: '#e8e8e8' }}>{email}</span>.
+            <br />Check your inbox and click the link.
+          </p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+              placeholder="your@email.com"
+              autoFocus
+              style={styles.addInput}
+              onFocus={(e) => (e.target.style.borderColor = '#7eb8f7')}
+              onBlur={(e) => (e.target.style.borderColor = '#222')}
+            />
+            <button
+              onClick={handleLogin}
+              disabled={loading}
+              style={{
+                ...styles.addBtn,
+                backgroundColor: '#7eb8f7',
+                color: '#0d0d0d',
+                opacity: loading ? 0.6 : 1,
+              }}
+            >
+              {loading ? 'Sending…' : 'Send magic link'}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─── Loading Screen ───────────────────────────────────────────────────────────
+
+function LoadingScreen() {
+  return (
+    <div style={{ ...styles.page, alignItems: 'center' }}>
+      <span style={{ fontSize: 11, color: '#2a2a2a', letterSpacing: '0.1em', fontFamily: "'IBM Plex Mono', monospace", textTransform: 'uppercase' }}>
+        Loading…
+      </span>
+    </div>
+  )
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -95,12 +146,8 @@ function TaskItem({ task, accent, onToggle, onDelete, onEdit }) {
     <li
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      style={{
-        ...styles.taskItem,
-        backgroundColor: hovered ? '#111' : 'transparent',
-      }}
+      style={{ ...styles.taskItem, backgroundColor: hovered ? '#111' : 'transparent' }}
     >
-      {/* Checkbox */}
       <button
         onClick={() => onToggle(task.id)}
         aria-label={task.completed ? 'Mark incomplete' : 'Mark complete'}
@@ -112,21 +159,13 @@ function TaskItem({ task, accent, onToggle, onDelete, onEdit }) {
       >
         {task.completed && (
           <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-            <path
-              d="M1 4L3.5 6.5L9 1"
-              stroke="#0d0d0d"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            <path d="M1 4L3.5 6.5L9 1" stroke="#0d0d0d" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         )}
       </button>
 
-      {/* Priority dot */}
       <PriorityDot value={task.priority} />
 
-      {/* Text / Edit input */}
       {editing ? (
         <input
           ref={inputRef}
@@ -150,14 +189,10 @@ function TaskItem({ task, accent, onToggle, onDelete, onEdit }) {
         </span>
       )}
 
-      {/* Delete */}
       <button
         onClick={() => onDelete(task.id)}
         aria-label="Delete task"
-        style={{
-          ...styles.deleteBtn,
-          opacity: hovered ? 1 : 0,
-        }}
+        style={{ ...styles.deleteBtn, opacity: hovered ? 1 : 0 }}
       >
         ✕
       </button>
@@ -197,7 +232,6 @@ function AddTaskBar({ accent, onAdd }) {
         </button>
       </div>
 
-      {/* Priority selector */}
       <div style={styles.priorityRow}>
         <span style={styles.priorityLabel}>Priority:</span>
         {PRIORITIES.map((p) => (
@@ -223,15 +257,123 @@ function AddTaskBar({ accent, onAdd }) {
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
-  const [tasks, setTasks] = useState(loadTasks)
+  const [session, setSession] = useState(null)
+  const [authLoading, setAuthLoading] = useState(true)
+  const [tasks, setTasks] = useState({ work: [], personal: [] })
   const [activeTab, setActiveTab] = useState('work')
   const [filters, setFilters] = useState({ work: 'All', personal: 'All' })
 
+  // ── Auth ──────────────────────────────────────────────────────────────────
+
   useEffect(() => {
-    saveTasks(tasks)
-  }, [tasks])
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session)
+      setAuthLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      setSession(session)
+    })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  // ── Tasks (load + real-time sync) ─────────────────────────────────────────
+
+  useEffect(() => {
+    if (!session) return
+
+    async function fetchTasks() {
+      const { data } = await supabase
+        .from('tasks')
+        .select('*')
+        .order('created_at', { ascending: false })
+
+      if (data) {
+        setTasks({
+          work: data.filter((t) => t.tab === 'work'),
+          personal: data.filter((t) => t.tab === 'personal'),
+        })
+      }
+    }
+
+    fetchTasks()
+
+    // Real-time: sync changes made on other devices
+    const channel = supabase
+      .channel('tasks-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, fetchTasks)
+      .subscribe()
+
+    return () => supabase.removeChannel(channel)
+  }, [session])
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+
+  async function addTask(text, priority) {
+    const { data } = await supabase
+      .from('tasks')
+      .insert({ text, priority, tab: activeTab, user_id: session.user.id, completed: false })
+      .select()
+      .single()
+
+    if (data) {
+      setTasks((prev) => ({ ...prev, [activeTab]: [data, ...prev[activeTab]] }))
+    }
+  }
+
+  async function toggleTask(id) {
+    const task = tasks[activeTab].find((t) => t.id === id)
+    // Optimistic update for instant feel
+    setTasks((prev) => ({
+      ...prev,
+      [activeTab]: prev[activeTab].map((t) =>
+        t.id === id ? { ...t, completed: !t.completed } : t
+      ),
+    }))
+    await supabase.from('tasks').update({ completed: !task.completed }).eq('id', id)
+  }
+
+  async function deleteTask(id) {
+    // Optimistic update
+    setTasks((prev) => ({
+      ...prev,
+      [activeTab]: prev[activeTab].filter((t) => t.id !== id),
+    }))
+    await supabase.from('tasks').delete().eq('id', id)
+  }
+
+  async function editTask(id, text) {
+    const { data } = await supabase
+      .from('tasks')
+      .update({ text })
+      .eq('id', id)
+      .select()
+      .single()
+
+    if (data) {
+      setTasks((prev) => ({
+        ...prev,
+        [activeTab]: prev[activeTab].map((t) => (t.id === id ? data : t)),
+      }))
+    }
+  }
+
+  async function clearCompleted() {
+    const ids = tasks[activeTab].filter((t) => t.completed).map((t) => t.id)
+    setTasks((prev) => ({ ...prev, [activeTab]: prev[activeTab].filter((t) => !t.completed) }))
+    await supabase.from('tasks').delete().in('id', ids)
+  }
+
+  // ── Render gates ──────────────────────────────────────────────────────────
+
+  if (authLoading) return <LoadingScreen />
+  if (!session) return <LoginScreen />
+
+  // ── Derived state ─────────────────────────────────────────────────────────
 
   const currentTab = TABS.find((t) => t.id === activeTab)
+  const accent = currentTab.accent
   const currentFilter = filters[activeTab]
   const tabTasks = tasks[activeTab]
 
@@ -246,63 +388,11 @@ export default function App() {
   })
 
   const hasCompleted = tabTasks.some((t) => t.completed)
-
-  const addTask = useCallback(
-    (text, priority) => {
-      setTasks((prev) => ({
-        ...prev,
-        [activeTab]: [createTask(text, priority), ...prev[activeTab]],
-      }))
-    },
-    [activeTab]
-  )
-
-  const toggleTask = useCallback(
-    (id) => {
-      setTasks((prev) => ({
-        ...prev,
-        [activeTab]: prev[activeTab].map((t) =>
-          t.id === id ? { ...t, completed: !t.completed } : t
-        ),
-      }))
-    },
-    [activeTab]
-  )
-
-  const deleteTask = useCallback(
-    (id) => {
-      setTasks((prev) => ({
-        ...prev,
-        [activeTab]: prev[activeTab].filter((t) => t.id !== id),
-      }))
-    },
-    [activeTab]
-  )
-
-  const editTask = useCallback(
-    (id, text) => {
-      setTasks((prev) => ({
-        ...prev,
-        [activeTab]: prev[activeTab].map((t) =>
-          t.id === id ? { ...t, text } : t
-        ),
-      }))
-    },
-    [activeTab]
-  )
-
-  const clearCompleted = useCallback(() => {
-    setTasks((prev) => ({
-      ...prev,
-      [activeTab]: prev[activeTab].filter((t) => !t.completed),
-    }))
-  }, [activeTab])
-
-  const setFilter = (f) =>
-    setFilters((prev) => ({ ...prev, [activeTab]: f }))
-
-  const accent = currentTab.accent
   const remaining = remainingCount(activeTab)
+
+  const setFilter = (f) => setFilters((prev) => ({ ...prev, [activeTab]: f }))
+
+  // ── JSX ───────────────────────────────────────────────────────────────────
 
   return (
     <div style={styles.page}>
@@ -310,7 +400,15 @@ export default function App() {
 
         {/* Header */}
         <header style={styles.header}>
-          <h1 style={styles.title}>Tasks</h1>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+            <h1 style={styles.title}>Tasks</h1>
+            <button
+              onClick={() => supabase.auth.signOut()}
+              style={styles.signOutBtn}
+            >
+              Sign out
+            </button>
+          </div>
           <p style={styles.subtitle}>Stay on top of what matters.</p>
         </header>
 
@@ -326,9 +424,7 @@ export default function App() {
                 style={{
                   ...styles.tab,
                   color: active ? tab.accent : '#555',
-                  borderBottom: active
-                    ? `2px solid ${tab.accent}`
-                    : '2px solid transparent',
+                  borderBottom: active ? `2px solid ${tab.accent}` : '2px solid transparent',
                 }}
               >
                 {tab.label}
@@ -349,7 +445,6 @@ export default function App() {
           })}
         </div>
 
-        {/* Divider */}
         <div style={styles.divider} />
 
         {/* Add task */}
@@ -365,10 +460,7 @@ export default function App() {
                 style={{
                   ...styles.filterBtn,
                   color: currentFilter === f ? accent : '#444',
-                  borderBottom:
-                    currentFilter === f
-                      ? `1px solid ${accent}`
-                      : '1px solid transparent',
+                  borderBottom: currentFilter === f ? `1px solid ${accent}` : '1px solid transparent',
                 }}
               >
                 {f}
@@ -452,10 +544,24 @@ const styles = {
     textTransform: 'uppercase',
     fontFamily: "'IBM Plex Mono', monospace",
   },
+  signOutBtn: {
+    background: 'none',
+    border: 'none',
+    fontFamily: "'IBM Plex Mono', monospace",
+    fontSize: 10,
+    color: '#333',
+    cursor: 'pointer',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    padding: '4px 0',
+    marginTop: 8,
+    textDecoration: 'underline',
+    textUnderlineOffset: 3,
+    borderRadius: 0,
+  },
   tabBar: {
     display: 'flex',
     gap: 4,
-    marginBottom: 0,
   },
   tab: {
     fontFamily: "'IBM Plex Mono', monospace",
@@ -519,7 +625,6 @@ const styles = {
     cursor: 'pointer',
     letterSpacing: '0.04em',
     flexShrink: 0,
-    transition: 'opacity 0.15s',
   },
   priorityRow: {
     display: 'flex',
@@ -624,7 +729,7 @@ const styles = {
     fontFamily: "'IBM Plex Mono', monospace",
     cursor: 'default',
     wordBreak: 'break-word',
-    transition: 'color 0.15s, text-decoration 0.15s',
+    transition: 'color 0.15s',
   },
   editInput: {
     flex: 1,
@@ -645,7 +750,7 @@ const styles = {
     cursor: 'pointer',
     padding: '2px 5px',
     borderRadius: 3,
-    transition: 'opacity 0.12s, color 0.12s',
+    transition: 'opacity 0.12s',
     flexShrink: 0,
     fontFamily: "'IBM Plex Mono', monospace",
   },
@@ -669,5 +774,11 @@ const styles = {
     letterSpacing: '0.08em',
     textTransform: 'uppercase',
     fontFamily: "'IBM Plex Mono', monospace",
+  },
+  sentMsg: {
+    fontSize: 13,
+    color: '#777',
+    fontFamily: "'IBM Plex Mono', monospace",
+    lineHeight: 1.7,
   },
 }
