@@ -104,13 +104,12 @@ function LoginScreen() {
             </p>
             <input
               type="text"
-              inputMode="numeric"
               value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(e) => setCode(e.target.value.trim())}
               onKeyDown={(e) => e.key === 'Enter' && handleVerifyCode()}
-              placeholder="123456"
+              placeholder="Enter your code"
               autoFocus
-              style={{ ...styles.addInput, letterSpacing: '0.2em', fontSize: 18 }}
+              style={{ ...styles.addInput, letterSpacing: '0.1em', fontSize: 15 }}
               onFocus={(e) => (e.target.style.borderColor = '#7eb8f7')}
               onBlur={(e) => (e.target.style.borderColor = '#222')}
             />
